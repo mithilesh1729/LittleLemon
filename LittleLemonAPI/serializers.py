@@ -2,6 +2,7 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 from .models import Category,MenuItem ,Cart,Order,OrderItem
 from django.contrib.auth.models import User
+from django.utils.timezone import now
 
 #Category Serializer
 class CategorySerilizer(serializers.ModelSerializer):
@@ -59,12 +60,12 @@ class CartSerilizer(serializers.ModelSerializer):
         ]
         #User ne sirf menuitem ID aur quantity bhejhai.
         # unit_price aur price ka data user se nahi lena hai, yeh database se auto-set hoga!
-        def create(self,validated_data):
-            menuitem = validated_data['menuitem'] 
-            quantity = validated_data['quantity'] 
-            validated_data['unit_price'] = menuitem.price  
-            validated_data['price'] = menuitem.price * quantity 
-            return Cart.objects.create(**validated_data)
+    def create(self,validated_data):
+        menuitem = validated_data['menuitem'] 
+        quantity = validated_data['quantity'] 
+        validated_data['unit_price'] = menuitem.price  
+        validated_data['price'] = menuitem.price * quantity 
+        return Cart.objects.create(**validated_data)
         # 1️⃣ User jo menu item select karega uska data lelo 
         # Ex: Pizza object mila (₹200 price ka)
         # Ex: User ne quantity 2 select ki
@@ -75,7 +76,6 @@ class CartSerilizer(serializers.ModelSerializer):
         # 3️⃣ Ab final validated_data se Cart me entry create karo
         
 
-# OrderItem Serializer
 class OrderItemSerializer(serializers.ModelSerializer):
     menuitem = MenuItemSerializer(read_only=True)
     menuitem_id = serializers.PrimaryKeyRelatedField(
@@ -97,15 +97,16 @@ class OrderItemSerializer(serializers.ModelSerializer):
                 message='This menu item is already in the order.'
             )
         ]
-        def create(self, validated_data):
-            # Auto-set unit_price and price from menuitem
-            menuitem = validated_data['menuitem']
-            quantity = validated_data['quantity']
-            validated_data['unit_price'] = menuitem.price
-            validated_data['price'] = menuitem.price * quantity
-            return OrderItem.objects.create(**validated_data)  
 
-# Order Serializer
+    def create(self, validated_data):
+        # Auto-set unit_price and price from menuitem
+        menuitem = validated_data['menuitem']
+        quantity = validated_data['quantity']
+        validated_data['unit_price'] = menuitem.price
+        validated_data['price'] = menuitem.price * quantity
+        return OrderItem.objects.create(**validated_data)
+
+
 class OrderSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(read_only=True, default=serializers.CurrentUserDefault())
     delivery_crew = serializers.PrimaryKeyRelatedField(
@@ -120,18 +121,24 @@ class OrderSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'status': {'required': False, 'default': 0},
             'total': {'read_only': True},
-            'date': {'read_only': True}
+            'date': {'read_only': True, 'default': now}
         }
+
     def validate_status(self, value):
         if value not in [0, 1]:
             raise serializers.ValidationError("Status must be 0 (out for delivery) or 1 (delivered).")
         return value
-    
+
     def update(self, instance, validated_data):
         # Ensure only Manager or Delivery crew can update specific fields
-        if self.context['request'].user.groups.filter(name='Delivery crew').exists():
+        user = self.context['request'].user
+
+        if user.groups.filter(name='Delivery crew').exists():
             if 'delivery_crew' in validated_data or 'user' in validated_data or 'total' in validated_data:
                 raise serializers.ValidationError("Delivery crew can only update status.")
-        return super().update(instance, validated_data) 
+        
+        # Proceed with the update
+        return super().update(instance, validated_data)
+
       
                     
